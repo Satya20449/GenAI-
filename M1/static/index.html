@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Tutor</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #172033;
+      background: #f3f6fb;
+    }
+
+    body {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 32px 18px 56px;
+    }
+
+    header {
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+    }
+
+    .panels {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 18px;
+    }
+
+    section, .result {
+      padding: 22px;
+      border: 1px solid #dce3ee;
+      border-radius: 12px;
+      background: white;
+      box-shadow: 0 4px 16px #1720330b;
+    }
+
+    label {
+      display: block;
+      margin: 14px 0 6px;
+      font-weight: 600;
+    }
+
+    input, textarea, button {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #c8d1df;
+      border-radius: 7px;
+      font: inherit;
+    }
+
+    textarea {
+      min-height: 82px;
+      resize: vertical;
+    }
+
+    button {
+      margin-top: 16px;
+      border: 0;
+      color: white;
+      background: #3156c8;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    .result {
+      margin-top: 20px;
+    }
+
+    .result[hidden] {
+      display: none;
+    }
+
+    pre {
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .hint {
+      color: #5b6678;
+      font-size: 0.92rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Tutor</h1>
+    <p class="hint">Generate a lesson, analyze academic media, or get feedback on a spoken answer.</p>
+  </header>
+
+  <main>
+    <div class="panels">
+      <section>
+        <h2>Generate study material</h2>
+        <form id="text-form">
+          <label for="topic">Topic</label>
+          <input id="topic" name="topic" maxlength="300" required placeholder="Neural networks">
+
+          <label for="course">Course (optional)</label>
+          <input id="course" name="course" maxlength="200" placeholder="Artificial Intelligence">
+
+          <label for="student-level">Student level</label>
+          <input id="student-level" name="student_level" maxlength="100" required placeholder="Beginner">
+
+          <button type="submit">Generate lesson</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Analyze an image</h2>
+        <form id="image-form">
+          <label for="question">Question about the image</label>
+          <textarea id="question" name="question" maxlength="1000" required placeholder="What does this diagram show?"></textarea>
+
+          <label for="image">Academic image (JPEG, PNG, or WebP; up to 10 MB)</label>
+          <input id="image" name="file" type="file" accept="image/jpeg,image/png,image/webp" required>
+
+          <button type="submit">Analyze image</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Evaluate a spoken answer</h2>
+        <form id="audio-form">
+          <label for="audio-question">Question the student answered</label>
+          <textarea id="audio-question" name="question" maxlength="1000" required placeholder="What is photosynthesis?"></textarea>
+
+          <label for="audio-file">Audio answer (MP3, WAV, AAC, OGG, or FLAC; up to 20 MB)</label>
+          <input id="audio-file" name="file" type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/aac,audio/ogg,audio/flac" required>
+
+          <button type="submit">Evaluate answer</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Analyze an academic video</h2>
+        <form id="video-form">
+          <label for="video-question">Question about the video</label>
+          <textarea id="video-question" name="question" maxlength="1000" required placeholder="What process is demonstrated in this video?"></textarea>
+
+          <label for="video-file">Video (MP4, AVI, or MOV; up to 20 MB)</label>
+          <input id="video-file" name="file" type="file" accept="video/mp4,video/quicktime,video/x-msvideo,video/avi,video/mov" required>
+
+          <button type="submit">Analyze video and create MCQs</button>
+        </form>
+      </section>
+    </div>
+
+    <section id="result" class="result" aria-live="polite" hidden>
+      <h2 id="result-title">Result</h2>
+      <pre id="result-content"></pre>
+    </section>
+  </main>
+
+  <script>
+    const resultPanel = document.querySelector("#result");
+    const resultTitle = document.querySelector("#result-title");
+    const resultContent = document.querySelector("#result-content");
+
+    async function submitRequest(form, endpoint, makeBody, title) {
+      const button = form.querySelector("button");
+      button.disabled = true;
+      button.textContent = "Working…";
+      resultPanel.hidden = false;
+      resultTitle.textContent = title;
+      resultContent.textContent = "Please wait…";
+
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          body: makeBody(new FormData(form)),
+          headers: endpoint === "/generate_text" ? { "Content-Type": "application/json" } : {},
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || payload.error || "Request failed.");
+        }
+        resultContent.textContent = JSON.stringify(payload, null, 2);
+      } catch (error) {
+        resultContent.textContent = `Error: ${error.message}`;
+      } finally {
+        button.disabled = false;
+        button.textContent = title;
+      }
+    }
+
+    document.querySelector("#text-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitRequest(
+        event.currentTarget,
+        "/generate_text",
+        (data) => JSON.stringify({
+          topic: data.get("topic"),
+          course: data.get("course"),
+          student_level: data.get("student_level"),
+        }),
+        "Generate lesson",
+      );
+    });
+
+    document.querySelector("#image-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitRequest(
+        event.currentTarget,
+        "/analyze_image",
+        (data) => data,
+        "Analyze image",
+      );
+    });
+
+    document.querySelector("#audio-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitRequest(
+        event.currentTarget,
+        "/evaluate_audio_answer",
+        (data) => data,
+        "Evaluate answer",
+      );
+    });
+
+    document.querySelector("#video-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitRequest(
+        event.currentTarget,
+        "/analyze_video",
+        (data) => data,
+        "Analyze video and create MCQs",
+      );
+    });
+  </script>
+</body>
+</html>
