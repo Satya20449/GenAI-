@@ -290,6 +290,60 @@ class TutorApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 413)
 
+    @patch(
+        "main._generate_content",
+        return_value=SimpleNamespace(
+            text=json.dumps(
+                {
+                    "scan_type": "study",
+                    "detected_content": "A biology diagram",
+                    "extracted_text": "Cell",
+                    "explanation": "The diagram shows a cell.",
+                    "key_points": ["Cells are basic units of life."],
+                    "final_answer": "A cell",
+                    "practice_questions": ["What is a cell?"],
+                }
+            )
+        ),
+    )
+    def test_visual_scan_returns_study_result(
+        self, generate_content: MagicMock
+    ) -> None:
+        response = self.client.post(
+            "/visual_scan",
+            data={"scan_type": "study", "question": ""},
+            files={"file": ("diagram.png", b"test image bytes", "image/png")},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["scan_type"], "study")
+        self.assertEqual(response.json()["detected_content"], "A biology diagram")
+        generate_content.assert_called_once()
+
+    def test_visual_scan_rejects_invalid_mode(self) -> None:
+        response = self.client.post(
+            "/visual_scan",
+            data={"scan_type": "unknown"},
+            files={"file": ("diagram.png", b"test image bytes", "image/png")},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_visual_scan_rejects_oversized_image(self) -> None:
+        response = self.client.post(
+            "/visual_scan",
+            data={"scan_type": "study"},
+            files={
+                "file": (
+                    "large.png",
+                    b"x" * (main.MAX_IMAGE_BYTES + 1),
+                    "image/png",
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 413)
+
     def test_missing_api_key_returns_service_unavailable(self) -> None:
         original_client = main.ai_client
         main.ai_client = None

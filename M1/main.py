@@ -330,6 +330,113 @@ async def analyze_video(
         await file.close()
 
 
+@app.post("/visual_scan")
+async def visual_scan(
+    file: UploadFile = File(...),
+    scan_type: str = Form("study"),
+    question: str = Form("Explain everything in this image", max_length=1000),
+) -> JSONResponse:
+    question = question.strip() or "Explain everything in this image"
+
+    prompts = {
+        "study": """
+            Extract all readable text from this image.
+            Explain the content like an AI tutor.
+            Identify important concepts and definitions.
+            Include examples and three practice questions.
+        """,
+        "solve": """
+            Read the question in this image.
+            Solve it step by step.
+            Explain every calculation and provide the final answer.
+        """,
+        "diagram": """
+            Analyze the diagram, chart, graph or flowchart.
+            Identify its components and explain how it works.
+            Describe relationships between components.
+        """,
+        "object": """
+            Identify the visible object or objects.
+            Explain their purpose, functionality and educational relevance.
+            Do not guess when the image is unclear.
+        """,
+    }
+    if scan_type not in prompts:
+        raise HTTPException(status_code=400, detail="Invalid scan_type.")
+
+    content_type = file.content_type or "application/octet-stream"
+    if content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Upload a JPEG, PNG, or WebP image.",
+        )
+
+    image_bytes = await file.read(MAX_IMAGE_BYTES + 1)
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Image is too large. The maximum upload size is 10 MB.",
+        )
+
+    prompt = f"""
+    You are an advanced AI visual scanner designed for educational assistance.
+    Scan mode: {scan_type}
+    User question: "{question}"
+
+    Instructions:
+    {prompts[scan_type]}
+
+    Return valid JSON with these fields:
+    {{
+        "scan_type": "string",
+        "detected_content": "string",
+        "extracted_text": "string",
+        "explanation": "string",
+        "key_points": ["string"],
+        "final_answer": "string",
+        "practice_questions": ["string"]
+    }}
+
+    If something cannot be identified, clearly say so. Do not invent information.
+    """
+    contents = [
+        types.Part.from_text(text=prompt),
+        types.Part.from_bytes(data=image_bytes, mime_type=content_type),
+    ]
+
+    try:
+        response = await run_in_threadpool(_generate_content, contents)
+        payload = _parse_model_json(response.text)
+        string_fields = (
+            "scan_type",
+            "detected_content",
+            "extracted_text",
+            "explanation",
+            "final_answer",
+        )
+        if any(not isinstance(payload.get(field), str) for field in string_fields):
+            raise ValueError("The AI service returned invalid visual scan fields.")
+        for field in ("key_points", "practice_questions"):
+            values = payload.get(field)
+            if not isinstance(values, list) or any(
+                not isinstance(value, str) for value in values
+            ):
+                raise ValueError(f"The AI service returned invalid {field}.")
+        return JSONResponse(status_code=200, content=payload)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Visual scan failed")
+        raise HTTPException(
+            status_code=502,
+            detail="The AI service could not scan the image. Check the server logs.",
+        ) from exc
+    finally:
+        await file.close()
+
+
 if __name__ == "__main__":
     import uvicorn
 

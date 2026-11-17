@@ -155,6 +155,27 @@
           <button type="submit">Analyze video and create MCQs</button>
         </form>
       </section>
+
+      <section>
+        <h2>Visual scanner</h2>
+        <form id="visual-scan-form">
+          <label for="scan-type">Scan mode</label>
+          <select id="scan-type" name="scan_type">
+            <option value="study">Study</option>
+            <option value="solve">Solve a question</option>
+            <option value="diagram">Analyze a diagram</option>
+            <option value="object">Identify objects</option>
+          </select>
+
+          <label for="scan-question">Question (optional)</label>
+          <textarea id="scan-question" name="question" maxlength="1000" placeholder="Explain everything in this image"></textarea>
+
+          <label for="scan-image">Image (JPEG, PNG, or WebP; up to 10 MB)</label>
+          <input id="scan-image" name="file" type="file" accept="image/jpeg,image/png,image/webp" required>
+
+          <button type="submit">Scan image</button>
+        </form>
+      </section>
     </div>
 
     <section id="result" class="result" aria-live="polite" hidden>
@@ -236,6 +257,16 @@
         "/analyze_video",
         (data) => data,
         "Analyze video and create MCQs",
+      );
+    });
+
+    document.querySelector("#visual-scan-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitRequest(
+        event.currentTarget,
+        "/visual_scan",
+        (data) => data,
+        "Scan image",
       );
     });
   </script>

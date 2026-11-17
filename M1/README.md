@@ -8,6 +8,7 @@ A small FastAPI application that uses Google's Gemini API to create study materi
 - Upload an academic image and ask a question about it.
 - Upload an audio answer and get an evaluation, score out of 10, and constructive feedback.
 - Upload an academic video and receive an analysis and three MCQs with four options and a correct answer each.
+- Scan images in study, solve, diagram, or object-identification mode.
 - Return the model's structured JSON response.
 - Serve an interface at `/` and interactive API documentation at `/docs`.
 - Validate request fields, accepted upload types, and upload size limits.
@@ -112,6 +113,17 @@ curl.exe -X POST "http://127.0.0.1:8000/analyze_video" `
   -F "question=What process is demonstrated in this video?" `
   -F "file=@C:\path\to\lesson.mp4"
 ```
+
+### `POST /visual_scan`
+
+Send a `multipart/form-data` request with:
+
+- `scan_type`: `study`, `solve`, `diagram`, or `object` (defaults to `study`).
+- `question`: an optional question about the image.
+- `file`: a JPEG, PNG, or WebP image no larger than 10 MB.
+
+The response contains detected content, extracted text, an explanation, key points,
+a final answer, and practice questions.
 
 ### `GET /health`
 
