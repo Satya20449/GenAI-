@@ -1,7 +1,7 @@
 import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -10,7 +10,38 @@ import main
 
 class TutorApiTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.client = TestClient(main.app)
+        self.original_secret_key = main.SECRET_KEY
+        self.original_algorithm = main.ALGORITHM
+        main.SECRET_KEY = "test-secret-key-long-enough-for-hs256-tests"
+        main.ALGORITHM = "HS256"
+        self.client = TestClient(
+            main.app,
+            headers={"token": main._create_access_token("test-student")},
+        )
+
+    def tearDown(self) -> None:
+        main.SECRET_KEY = self.original_secret_key
+        main.ALGORITHM = self.original_algorithm
+
+    def test_ai_endpoint_requires_authentication(self) -> None:
+        client = TestClient(main.app)
+
+        response = client.post(
+            "/generate_text",
+            json={"topic": "Neural networks", "student_level": "beginner"},
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_ai_endpoint_rejects_invalid_token(self) -> None:
+        client = TestClient(main.app, headers={"token": "invalid"})
+
+        response = client.post(
+            "/generate_text",
+            json={"topic": "Neural networks", "student_level": "beginner"},
+        )
+
+        self.assertEqual(response.status_code, 401)
 
     def test_homepage_is_served(self) -> None:
         response = self.client.get("/")
@@ -76,6 +107,46 @@ class TutorApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 422)
+
+    def test_signup_stores_a_password_hash(self) -> None:
+        users = SimpleNamespace(
+            create_index=AsyncMock(),
+            find_one=AsyncMock(return_value=None),
+            insert_one=AsyncMock(),
+        )
+
+        with patch.object(main, "user_collection", users):
+            response = self.client.post(
+                "/signup",
+                json={"username": "student", "password": "safe-password"},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        stored_user = users.insert_one.await_args.args[0]
+        self.assertNotEqual(stored_user["password"], "safe-password")
+        self.assertTrue(main.pwd_context.verify("safe-password", stored_user["password"]))
+
+    def test_signin_returns_a_valid_access_token(self) -> None:
+        password_hash = main.pwd_context.hash("safe-password")
+        users = SimpleNamespace(
+            find_one=AsyncMock(
+                return_value={"username": "student", "password": password_hash}
+            )
+        )
+
+        with patch.object(main, "user_collection", users):
+            response = self.client.post(
+                "/signin",
+                json={"username": "student", "password": "safe-password"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        claims = main.jwt.decode(
+            response.json()["access_token"],
+            "test-secret-key-long-enough-for-hs256-tests",
+            algorithms=["HS256"],
+        )
+        self.assertEqual(claims["username"], "student")
 
     @patch(
         "main._generate_content",
@@ -343,6 +414,43 @@ class TutorApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 413)
+
+    @patch(
+        "main._generate_content",
+        return_value=SimpleNamespace(
+            text=json.dumps(
+                {
+                    "code_overview": "Prints a greeting.",
+                    "line_by_line_explanation": "The print call writes text.",
+                    "logic_and_working": "The program executes one print statement.",
+                    "errors_and_bugs": "No errors found.",
+                    "corrected_code": "print('hello')",
+                    "time_complexity": "O(1)",
+                    "space_complexity": "O(1)",
+                    "learning_tip": "Use clear variable names.",
+                }
+            )
+        ),
+    )
+    def test_explain_code_returns_structured_explanation(
+        self, generate_content: MagicMock
+    ) -> None:
+        response = self.client.post(
+            "/explain_code",
+            json={"language": "Python", "code": "print('hello')"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["code_overview"], "Prints a greeting.")
+        generate_content.assert_called_once()
+
+    def test_explain_code_rejects_blank_code(self) -> None:
+        response = self.client.post(
+            "/explain_code",
+            json={"language": "Python", "code": "  "},
+        )
+
+        self.assertEqual(response.status_code, 422)
 
     def test_missing_api_key_returns_service_unavailable(self) -> None:
         original_client = main.ai_client

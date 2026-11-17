@@ -96,11 +96,27 @@
 <body>
   <header>
     <h1>AI Tutor</h1>
-    <p class="hint">Generate a lesson, analyze academic media, or get feedback on a spoken answer.</p>
+    <p class="hint">Sign in to generate lessons, analyze academic media, explain code, or get feedback on a spoken answer.</p>
   </header>
 
   <main>
     <div class="panels">
+      <section>
+        <h2>Student account</h2>
+        <form id="auth-form">
+          <label for="auth-username">Username</label>
+          <input id="auth-username" name="username" maxlength="80" required>
+
+          <label for="auth-password">Password</label>
+          <input id="auth-password" name="password" type="password" minlength="8" maxlength="128" required>
+
+          <button type="submit" value="signup">Create account</button>
+          <button type="submit" value="signin">Sign in</button>
+        </form>
+        <p id="auth-status" class="hint" aria-live="polite">Sign in or create an account to use the AI tools.</p>
+        <button id="signout-button" type="button" hidden>Sign out</button>
+      </section>
+
       <section>
         <h2>Generate study material</h2>
         <form id="text-form">
@@ -176,6 +192,19 @@
           <button type="submit">Scan image</button>
         </form>
       </section>
+
+      <section>
+        <h2>Explain code</h2>
+        <form id="code-form">
+          <label for="code-language">Programming language</label>
+          <input id="code-language" name="language" maxlength="80" required placeholder="Python">
+
+          <label for="student-code">Code (up to 20,000 characters; it will not be executed)</label>
+          <textarea id="student-code" name="code" maxlength="20000" required></textarea>
+
+          <button type="submit">Explain code</button>
+        </form>
+      </section>
     </div>
 
     <section id="result" class="result" aria-live="polite" hidden>
@@ -188,6 +217,19 @@
     const resultPanel = document.querySelector("#result");
     const resultTitle = document.querySelector("#result-title");
     const resultContent = document.querySelector("#result-content");
+    const authStatus = document.querySelector("#auth-status");
+    const signoutButton = document.querySelector("#signout-button");
+    const authTokenKey = "aiTutorToken";
+
+    function updateAuthStatus(message, signedIn) {
+      authStatus.textContent = message;
+      signoutButton.hidden = !signedIn;
+    }
+
+    function authHeaders() {
+      const token = sessionStorage.getItem(authTokenKey);
+      return token ? { token } : {};
+    }
 
     async function submitRequest(form, endpoint, makeBody, title) {
       const button = form.querySelector("button");
@@ -201,7 +243,14 @@
         const response = await fetch(endpoint, {
           method: "POST",
           body: makeBody(new FormData(form)),
-          headers: endpoint === "/generate_text" ? { "Content-Type": "application/json" } : {},
+          headers: {
+            ...authHeaders(),
+            ...(
+              endpoint === "/generate_text" || endpoint === "/explain_code"
+                ? { "Content-Type": "application/json" }
+                : {}
+            ),
+          },
         });
         const payload = await response.json();
         if (!response.ok) {
@@ -214,6 +263,47 @@
         button.disabled = false;
         button.textContent = title;
       }
+    }
+
+    document.querySelector("#auth-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.currentTarget);
+      const action = event.submitter.value;
+      const endpoint = action === "signup" ? "/signup" : "/signin";
+      authStatus.textContent = "Please wait…";
+
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: formData.get("username"),
+            password: formData.get("password"),
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || payload.error || "Authentication failed.");
+        }
+
+        if (action === "signin") {
+          sessionStorage.setItem(authTokenKey, payload.access_token);
+          updateAuthStatus("Signed in. AI tools are ready.", true);
+        } else {
+          updateAuthStatus("Account created. Sign in to receive an access token.", false);
+        }
+      } catch (error) {
+        updateAuthStatus(`Error: ${error.message}`, false);
+      }
+    });
+
+    signoutButton.addEventListener("click", () => {
+      sessionStorage.removeItem(authTokenKey);
+      updateAuthStatus("Signed out.", false);
+    });
+
+    if (sessionStorage.getItem(authTokenKey)) {
+      updateAuthStatus("Signed in for this browser session.", true);
     }
 
     document.querySelector("#text-form").addEventListener("submit", (event) => {
@@ -267,6 +357,19 @@
         "/visual_scan",
         (data) => data,
         "Scan image",
+      );
+    });
+
+    document.querySelector("#code-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitRequest(
+        event.currentTarget,
+        "/explain_code",
+        (data) => JSON.stringify({
+          language: data.get("language"),
+          code: data.get("code"),
+        }),
+        "Explain code",
       );
     });
   </script>

@@ -1,6 +1,6 @@
 # AI Tutor API
 
-A small FastAPI application that uses Google's Gemini API to create study material, explain academic images and videos, and evaluate spoken answers. Video analysis also creates three multiple-choice questions. It includes a simple browser interface and automated tests that do not make real Gemini requests.
+A FastAPI AI tutor that combines JWT account authentication with Google's Gemini API to create study material, explain code, analyze academic media, and evaluate spoken answers. It includes a browser interface and automated tests that do not make real Gemini requests.
 
 ## Features
 
@@ -9,6 +9,8 @@ A small FastAPI application that uses Google's Gemini API to create study materi
 - Upload an audio answer and get an evaluation, score out of 10, and constructive feedback.
 - Upload an academic video and receive an analysis and three MCQs with four options and a correct answer each.
 - Scan images in study, solve, diagram, or object-identification mode.
+- Register and sign in with JWT access tokens.
+- Explain and debug submitted code without executing it.
 - Return the model's structured JSON response.
 - Serve an interface at `/` and interactive API documentation at `/docs`.
 - Validate request fields, accepted upload types, and upload size limits.
@@ -17,6 +19,7 @@ A small FastAPI application that uses Google's Gemini API to create study materi
 
 - Python 3.10 or later.
 - A Gemini API key.
+- A MongoDB connection string for account registration and sign-in.
 
 ## Setup on Windows
 
@@ -33,9 +36,13 @@ Create a `.env` file in the project folder with your own Gemini API key:
 ```dotenv
 GEMINI_API_KEY=replace_with_your_api_key
 CHAT_MODEL=gemini-2.5-flash
+SECRET_KEY=replace_with_a_long_random_secret
+ALGORITHM=HS256
+MONGO_URI=mongodb://localhost:27017
 ```
 
-Keep `.env` private. It is excluded from Git by `.gitignore`; never paste the key into source code, screenshots, or shared messages. If a key has been shared, revoke it and create a replacement in Google AI Studio.
+Generate a signing secret with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+Keep `.env` private. It is excluded from Git by `.gitignore`; never paste credentials into source code, screenshots, or shared messages. If a key has been shared, revoke it and create a replacement.
 
 ## Run the application
 
@@ -43,11 +50,32 @@ Keep `.env` private. It is excluded from Git by `.gitignore`; never paste the ke
 python -m uvicorn main:app --reload
 ```
 
-Open <http://127.0.0.1:8000/> for the interface, <http://127.0.0.1:8000/docs> for Swagger UI, or <http://127.0.0.1:8000/health> to check whether the API key was loaded.
+Open <http://127.0.0.1:8000/> for the interface, <http://127.0.0.1:8000/docs> for Swagger UI, or <http://127.0.0.1:8000/health> to check service configuration.
 
-The app starts even if `GEMINI_API_KEY` is missing so the interface and health route remain accessible. AI endpoints return HTTP 503 until the key is configured.
+The app starts when Gemini, JWT, or MongoDB settings are missing so the interface and health route remain accessible. AI endpoints return HTTP 503 until Gemini is configured; account endpoints return HTTP 503 until JWT and MongoDB are configured.
 
 ## API
+
+### `POST /signup` and `POST /signin`
+
+Send JSON containing `username` and `password` to register or sign in. Passwords are stored as bcrypt hashes. Sign-in returns a JWT access token that expires after 30 minutes.
+
+```json
+{
+  "username": "student",
+  "password": "choose-a-password"
+}
+```
+
+### Authenticated endpoints
+
+All AI endpoints require the returned token in the `token` HTTP header:
+
+```text
+token: <access_token>
+```
+
+The browser interface handles registration, sign-in, and this header automatically. `/`, `/health`, `/signup`, and `/signin` do not require a token.
 
 ### `POST /generate_text`
 
@@ -125,9 +153,24 @@ Send a `multipart/form-data` request with:
 The response contains detected content, extracted text, an explanation, key points,
 a final answer, and practice questions.
 
+### `POST /explain_code`
+
+Send JSON with the programming language and code to explain. The submitted code is treated as untrusted text and is never executed.
+
+```json
+{
+  "language": "Python",
+  "code": "print('Hello, world!')"
+}
+```
+
+The response contains `code_overview`, `line_by_line_explanation`, `logic_and_working`,
+`errors_and_bugs`, `corrected_code`, `time_complexity`, `space_complexity`, and
+`learning_tip`.
+
 ### `GET /health`
 
-Returns the application status, model name, and whether Gemini is configured. It never returns the API key.
+Returns the application status, model name, and whether Gemini and authentication are configured. It never returns credentials.
 
 ## Run tests
 
